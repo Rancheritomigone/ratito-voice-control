@@ -32,7 +32,7 @@ steps:
     run: gradle assembleDebug
 
   - name: Guardar APK
-    uses: actions/upload-artifact@v4
-    with:
-      name: RatitoVoiceControl-APK
-      path: proyecto/app/build/outputs/apk/debug/app-debug.apk
+        uses: actions/upload-artifact@v4
+        with:
+          name: RatitoVoiceControl-APK
+          path: proyecto/app/build/outputs/apk/debug/app-debug.apk
