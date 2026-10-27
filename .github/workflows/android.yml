@@ -1,37 +1,37 @@
 name: Compilar Ratito Voice Control
 
-'on':
-workflow_dispatch:
+on:
+  workflow_dispatch:
 
 jobs:
-build:
-runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-latest
 
-steps:
-  - name: Descargar repositorio
-    uses: actions/checkout@v4
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
 
-  - name: Preparar Java
-    uses: actions/setup-java@v4
-    with:
-      distribution: temurin
-      java-version: '17'
+      - name: Preparar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
 
-  - name: Preparar Gradle
-    uses: gradle/actions/setup-gradle@v4
-    with:
-      gradle-version: '8.9'
+      - name: Preparar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
 
-  - name: Descomprimir proyecto
-    run: |
-      mkdir proyecto
-      unzip -o RatitoVoiceControl-source.zip -d proyecto
+      - name: Descomprimir proyecto
+        run: |
+          mkdir proyecto
+          unzip -o RatitoVoiceControl-source.zip -d proyecto
 
-  - name: Compilar APK
-    working-directory: proyecto
-    run: gradle assembleDebug
+      - name: Compilar APK
+        working-directory: proyecto
+        run: gradle assembleDebug
 
-  - name: Guardar APK
+      - name: Guardar APK
         uses: actions/upload-artifact@v4
         with:
           name: RatitoVoiceControl-APK
