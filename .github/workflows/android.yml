@@ -1,4 +1,4 @@
-name: Compilar Ratito Voice Control
+name: Auto-Build Ratito Voice Control
 
 on:
   workflow_dispatch:
@@ -8,31 +8,761 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Descargar repositorio
-        uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      - name: Preparar Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
 
-      - name: Preparar Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
+    - name: Set up Gradle
+      uses: gradle/actions/setup-gradle@v4
+      with:
+        gradle-version: '8.5'
 
-      - name: Descomprimir proyecto
-        run: |
-          mkdir proyecto
-          unzip -o RatitoVoiceControl-source.zip -d proyecto
+    - name: Generate Android Project Structure & Files
+      run: |
+        # Crear directorios
+        mkdir -p app/src/main/java/com/ratito/voicecontrol
+        mkdir -p app/src/main/res/layout
+        mkdir -p app/src/main/res/values
 
-      - name: Compilar APK
-        working-directory: proyecto
-        run: gradle assembleDebug
+        # 1. settings.gradle.kts
+        cat << 'EOF' > settings.gradle.kts
+        pluginManagement {
+            repositories {
+                google()
+                mavenCentral()
+                gradlePluginPortal()
+            }
+        }
+        dependencyResolutionManagement {
+            repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+            repositories {
+                google()
+                mavenCentral()
+            }
+        }
+        rootProject.name = "Ratito Voice Control"
+        include(":app")
+        EOF
 
-      - name: Guardar APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: RatitoVoiceControl-APK
-          path: proyecto/app/build/outputs/apk/debug/app-debug.apk
+        # 2. build.gradle.kts (root)
+        cat << 'EOF' > build.gradle.kts
+        plugins {
+            id("com.android.application") version "8.2.0" apply false
+            id("org.jetbrains.kotlin.android") version "1.9.22" apply false
+        }
+        EOF
+
+        # 3. gradle.properties
+        cat << 'EOF' > gradle.properties
+        org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+        android.useAndroidX=true
+        android.enableJetifier=true
+        kotlin.code.style=official
+        EOF
+
+        # 4. app/build.gradle.kts
+        cat << 'EOF' > app/build.gradle.kts
+        plugins {
+            id("com.android.application")
+            id("org.jetbrains.kotlin.android")
+        }
+        android {
+            namespace = "com.ratito.voicecontrol"
+            compileSdk = 34
+            defaultConfig {
+                applicationId = "com.ratito.voicecontrol"
+                minSdk = 26
+                targetSdk = 34
+                versionCode = 1
+                versionName = "1.0"
+                testInstrumentationRunner = "androidx.test.ext.runner.AndroidJUnitRunner"
+            }
+            buildTypes {
+                release {
+                    isMinifyEnabled = false
+                    proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+                }
+                debug {
+                    applicationIdSuffix = ".debug"
+                    isDebuggable = true
+                }
+            }
+            compileOptions {
+                sourceCompatibility = JavaVersion.VERSION_17
+                targetCompatibility = JavaVersion.VERSION_17
+            }
+            kotlinOptions {
+                jvmTarget = "17"
+            }
+        }
+        kotlin {
+            jvmToolchain(17)
+        }
+        dependencies {
+            implementation("androidx.core:core-ktx:1.12.0")
+            implementation("androidx.appcompat:appcompat:1.6.1")
+            implementation("com.google.android.material:material:1.11.0")
+            implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+        }
+        EOF
+
+        # 5. AndroidManifest.xml
+        cat << 'EOF' > app/src/main/AndroidManifest.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+            xmlns:tools="http://schemas.android.com/tools">
+
+            <uses-permission android:name="android.permission.RECORD_AUDIO" />
+            <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+            <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+            <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+            <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+            <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+            <application
+                android:allowBackup="true"
+                android:icon="@mipmap/ic_launcher"
+                android:label="@string/app_name"
+                android:roundIcon="@mipmap/ic_launcher_round"
+                android:supportsRtl="true"
+                android:theme="@style/Theme.AppCompat.Light.NoActionBar"
+                tools:targetApi="31">
+
+                <activity
+                    android:name=".MainActivity"
+                    android:exported="true">
+                    <intent-filter>
+                        <action android:name="android.intent.action.MAIN" />
+                        <category android:name="android.intent.category.LAUNCHER" />
+                    </intent-filter>
+                </activity>
+
+                <service
+                    android:name=".VoiceService"
+                    android:enabled="true"
+                    android:exported="false"
+                    android:foregroundServiceType="microphone" />
+
+                <service
+                    android:name=".FloatingButtonService"
+                    android:enabled="true"
+                    android:exported="false" />
+
+            </application>
+        </manifest>
+        EOF
+
+        # 6. strings.xml
+        cat << 'EOF' > app/src/main/res/values/strings.xml
+        <resources>
+            <string name="app_name">Ratito Voice Control</string>
+        </resources>
+        EOF
+
+        # 7. activity_main.xml
+        cat << 'EOF' > app/src/main/res/layout/activity_main.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:padding="24dp"
+            android:gravity="center_horizontal"
+            android:background="#F5F5F5">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Ratito Voice Control"
+                android:textSize="26sp"
+                android:textStyle="bold"
+                android:textColor="#333333"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Motorola Moto G52 - Español (AR)"
+                android:textSize="12sp"
+                android:textColor="#777777"
+                android:layout_marginBottom="24dp" />
+
+            <TextView
+                android:id="@+id/statusTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Estado: Detenido"
+                android:textSize="15sp"
+                android:textColor="#222222"
+                android:background="#FFFFFF"
+                android:padding="16dp"
+                android:layout_marginBottom="24dp" />
+
+            <Button
+                android:id="@+id/btnStartService"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Iniciar Escucha (Ratito)"
+                android:layout_marginBottom="12dp" />
+
+            <Button
+                android:id="@+id/btnStopService"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Detener Servicio"
+                android:layout_marginBottom="12dp" />
+
+            <Button
+                android:id="@+id/btnFloatToggle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Activar Botón Flotante"
+                android:layout_marginBottom="12dp" />
+
+            <Button
+                android:id="@+id/btnPermissions"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Permisos y Limitaciones" />
+
+        </LinearLayout>
+        EOF
+
+        # 8. floating_button.xml
+        cat << 'EOF' > app/src/main/res/layout/floating_button.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:background="@android:drawable/dialog_holo_light_frame"
+            android:padding="4dp"
+            android:gravity="center">
+
+            <ImageButton
+                android:id="@+id/btnFloatAction"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:src="@android:drawable/ic_media_play"
+                android:contentDescription="Ratito Play/Pause"
+                android:background="?attr/selectableItemBackgroundBorderless" />
+
+            <ImageButton
+                android:id="@+id/btnFloatClose"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@android:drawable/ic_menu_close_clear_cancel"
+                android:contentDescription="Cerrar Botón Flotante"
+                android:background="?attr/selectableItemBackgroundBorderless" />
+
+        </LinearLayout>
+        EOF
+
+        # 9. MainActivity.kt
+        cat << 'EOF' > app/src/main/java/com/ratito/voicecontrol/MainActivity.kt
+        package com.ratito.voicecontrol
+
+        import android.Manifest
+        import android.app.AlertDialog
+        import android.content.Intent
+        import android.content.pm.PackageManager
+        import android.net.Uri
+        import android.os.Build
+        import android.os.Bundle
+        import android.provider.Settings
+        import android.widget.Button
+        import android.widget.TextView
+        import android.widget.Toast
+        import androidx.appcompat.app.AppCompatActivity
+        import androidx.core.app.ActivityCompat
+        import androidx.core.content.ContextCompat
+
+        class MainActivity : AppCompatActivity() {
+
+            private lateinit var statusTextView: TextView
+            private lateinit var btnStartService: Button
+            private lateinit var btnStopService: Button
+            private lateinit var btnFloatToggle: Button
+            private lateinit var btnPermissions: Button
+
+            companion object {
+                private const val PERMISSION_REQUEST_CODE = 1001
+            }
+
+            override fun onCreate(savedInstanceState: Bundle?) {
+                super.onCreate(savedInstanceState)
+                setContentView(R.layout.activity_main)
+
+                statusTextView = findViewById(R.id.statusTextView)
+                btnStartService = findViewById(R.id.btnStartService)
+                btnStopService = findViewById(R.id.btnStopService)
+                btnFloatToggle = findViewById(R.id.btnFloatToggle)
+                btnPermissions = findViewById(R.id.btnPermissions)
+
+                btnStartService.setOnClickListener {
+                    if (checkAllPermissions()) {
+                        startVoiceService()
+                    } else {
+                        requestAllPermissions()
+                    }
+                }
+
+                btnStopService.setOnClickListener {
+                    stopVoiceService()
+                }
+
+                btnFloatToggle.setOnClickListener {
+                    if (Settings.canDrawOverlays(this)) {
+                        startService(Intent(this, FloatingButtonService::class.java))
+                        Toast.makeText(this, "Botón flotante activado", Toast.LENGTH_SHORT).show()
+                    } else {
+                        requestOverlayPermission()
+                    }
+                }
+
+                btnPermissions.setOnClickListener {
+                    showPermissionsExplanation()
+                }
+            }
+
+            override fun onResume() {
+                super.onResume()
+                updateStatus()
+            }
+
+            private fun checkAllPermissions(): Boolean {
+                val micGranted = ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.RECORD_AUDIO
+                ) == PackageManager.PERMISSION_GRANTED
+
+                val notifGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    ContextCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.POST_NOTIFICATIONS
+                    ) == PackageManager.PERMISSION_GRANTED
+                } else {
+                    true
+                }
+
+                val overlayGranted = Settings.canDrawOverlays(this)
+
+                return micGranted && notifGranted && overlayGranted
+            }
+
+            private fun requestAllPermissions() {
+                val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+                }
+                ActivityCompat.requestPermissions(this, permissions.toTypedArray(), PERMISSION_REQUEST_CODE)
+
+                if (!Settings.canDrawOverlays(this)) {
+                    requestOverlayPermission()
+                }
+            }
+
+            private fun requestOverlayPermission() {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                startActivity(intent)
+                Toast.makeText(this, "Concedé el permiso de superposición para el botón flotante", Toast.LENGTH_LONG).show()
+            }
+
+            private fun startVoiceService() {
+                val intent = Intent(this, VoiceService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
+                }
+                Toast.makeText(this, "Ratito iniciado", Toast.LENGTH_SHORT).show()
+                updateStatus()
+            }
+
+            private fun stopVoiceService() {
+                stopService(Intent(this, VoiceService::class.java))
+                stopService(Intent(this, FloatingButtonService::class.java))
+                Toast.makeText(this, "Ratito detenido", Toast.LENGTH_SHORT).show()
+                updateStatus()
+            }
+
+            private fun updateStatus() {
+                statusTextView.text = "Estado: Listo. Di 'Ratito' seguido de tu comando o usa el botón flotante."
+            }
+
+            private fun showPermissionsExplanation() {
+                AlertDialog.Builder(this)
+                    .setTitle("Permisos y Limitaciones de Android")
+                    .setMessage("Ratito necesita:\n\n" +
+                            "1. Micrófono: Para escuchar los comandos de voz en español de Argentina.\n" +
+                            "2. Superposición (Botón flotante): Para mostrar controles rápidos sobre YouTube u otras apps.\n" +
+                            "3. Notificaciones: Para mantener el servicio activo en primer plano.\n\n" +
+                            "Nota sobre pantalla apagada: Las versiones modernas de Android restringen el micrófono en segundo plano. Si la pantalla se apaga completamente, el reconocimiento puede pausarse. Se recomienda desactivar la optimización de batería para Ratito en los ajustes de tu Motorola.")
+                    .setPositiveButton("Entendido", null)
+                    .show()
+            }
+        }
+        EOF
+
+        # 10. VoiceService.kt
+        cat << 'EOF' > app/src/main/java/com/ratito/voicecontrol/VoiceService.kt
+        package com.ratito.voicecontrol
+
+        import android.app.Notification
+        import android.app.NotificationChannel
+        import android.app.NotificationManager
+        import android.app.PendingIntent
+        import android.app.Service
+        import android.content.Context
+        import android.content.Intent
+        import android.media.AudioManager
+        import android.os.Build
+        import android.os.Bundle
+        import android.os.IBinder
+        import android.os.VibrationEffect
+        import android.os.Vibrator
+        import android.speech.RecognitionListener
+        import android.speech.RecognizerIntent
+        import android.speech.SpeechRecognizer
+        import android.util.Log
+        import androidx.core.app.NotificationCompat
+        import java.util.Locale
+
+        class VoiceService : Service() {
+
+            private var speechRecognizer: SpeechRecognizer? = null
+            private lateinit var intentRecognizer: Intent
+            private lateinit var audioManager: AudioManager
+            private var shouldListen = true
+
+            companion object {
+                const val CHANNEL_ID = "RatitoVoiceChannel"
+                const val NOTIFICATION_ID = 1337
+                const val TAG = "RatitoVoiceService"
+            }
+
+            override fun onCreate() {
+                super.onCreate()
+                audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                createNotificationChannel()
+
+                intentRecognizer = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-AR")
+                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                }
+            }
+
+            override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+                val notification = createNotification("Ratito escuchando comandos en español (AR)...")
+                startForeground(NOTIFICATION_ID, notification)
+
+                shouldListen = true
+                startListeningSafe()
+
+                return START_STICKY
+            }
+
+            private fun startListeningSafe() {
+                if (!shouldListen) return
+                try {
+                    if (speechRecognizer == null) {
+                        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
+                            setRecognitionListener(object : RecognitionListener {
+                                override fun onReadyForSpeech(params: Bundle?) {}
+                                override fun onBeginningOfSpeech() {}
+                                override fun onRmsChanged(rmsdB: Float) {}
+                                override fun onBufferReceived(buffer: ByteArray?) {}
+                                override fun onEndOfSpeech() {}
+                                override fun onError(error: Int) {
+                                    android.os.Handler(mainLooper).postDelayed({
+                                        startListeningSafe()
+                                    }, 1000)
+                                }
+                                override fun onResults(results: Bundle?) {
+                                    val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                                    if (!matches.isNullOrEmpty()) {
+                                        processCommands(matches)
+                                    }
+                                    startListeningSafe()
+                                }
+                                override fun onPartialResults(partialResults: Bundle?) {}
+                                override fun onEvent(eventType: Int, params: Bundle?) {}
+                            })
+                        }
+                    }
+                    speechRecognizer?.startListening(intentRecognizer)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error starting speech recognizer", e)
+                    android.os.Handler(mainLooper).postDelayed({
+                        startListeningSafe()
+                    }, 3000)
+                }
+            }
+
+            private fun processCommands(phrases: List<String>) {
+                for (phrase in phrases) {
+                    val text = phrase.lowercase(Locale("es", "AR"))
+                    Log.d(TAG, "Reconocido: $text")
+
+                    if (text.contains("ratito")) {
+                        vibratePhone()
+                        if (text.contains("reproducir") || text.contains("play") || text.contains("continuar")) {
+                            sendMediaButton(android.view.KeyEvent.KEYCODE_MEDIA_PLAY)
+                            break
+                        } else if (text.contains("pausar") || text.contains("pausa")) {
+                            sendMediaButton(android.view.KeyEvent.KEYCODE_MEDIA_PAUSE)
+                            break
+                        } else if (text.contains("siguiente") || text.contains("proximo") || text.contains("próximo")) {
+                            sendMediaButton(android.view.KeyEvent.KEYCODE_MEDIA_NEXT)
+                            break
+                        } else if (text.contains("anterior") || text.contains("atras") || text.contains("atrás")) {
+                            sendMediaButton(android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+                            break
+                        } else if (text.contains("subir volumen") || text.contains("subir el volumen")) {
+                            audioManager.adjustStreamVolume(
+                                AudioManager.STREAM_MUSIC,
+                                AudioManager.ADJUST_RAISE,
+                                AudioManager.FLAG_SHOW_UI
+                            )
+                            break
+                        } else if (text.contains("bajar volumen") || text.contains("bajar el volumen")) {
+                            audioManager.adjustStreamVolume(
+                                AudioManager.STREAM_MUSIC,
+                                AudioManager.ADJUST_LOWER,
+                                AudioManager.FLAG_SHOW_UI
+                            )
+                            break
+                        } else if (text.contains("detener") || text.contains("parar")) {
+                            sendMediaButton(android.view.KeyEvent.KEYCODE_MEDIA_STOP)
+                            break
+                        }
+                    }
+                }
+            }
+
+            private fun sendMediaButton(keyCode: Int) {
+                val eventTime = android.os.SystemClock.uptimeMillis()
+                val downEvent = android.view.KeyEvent(eventTime, eventTime, android.view.KeyEvent.ACTION_DOWN, keyCode, 0)
+                val upEvent = android.view.KeyEvent(eventTime, eventTime, android.view.KeyEvent.ACTION_UP, keyCode, 0)
+                try {
+                    audioManager.dispatchMediaKeyEvent(downEvent)
+                    audioManager.dispatchMediaKeyEvent(upEvent)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error dispatching media key", e)
+                }
+            }
+
+            private fun vibratePhone() {
+                try {
+                    val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        vibrator.vibrate(VibrationEffect.createOneShot(100, VibrationEffect.DEFAULT_AMPLITUDE))
+                    } else {
+                        @Suppress("DEPRECATION")
+                        vibrator.vibrate(100)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Vibration error", e)
+                }
+            }
+
+            private fun createNotificationChannel() {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val channel = NotificationChannel(
+                        CHANNEL_ID,
+                        "Ratito Voice Control Service",
+                        NotificationManager.IMPORTANCE_LOW
+                    ).apply {
+                        description = "Mantiene el reconocimiento de voz activo"
+                    }
+                    val manager = getSystemService(NotificationManager::class.java)
+                    manager.createNotificationChannel(channel)
+                }
+            }
+
+            private fun createNotification(content: String): Notification {
+                val notificationIntent = Intent(this, MainActivity::class.java)
+                val pendingIntent = PendingIntent.getActivity(
+                    this,
+                    0,
+                    notificationIntent,
+                    PendingIntent.FLAG_IMMUTABLE
+                )
+
+                return NotificationCompat.Builder(this, CHANNEL_ID)
+                    .setContentTitle("Ratito Voice Control")
+                    .setContentText(content)
+                    .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+                    .setContentIntent(pendingIntent)
+                    .setOngoing(true)
+                    .build()
+            }
+
+            override fun onDestroy() {
+                shouldListen = false
+                try {
+                    speechRecognizer?.destroy()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error destroying speech recognizer", e)
+                }
+                speechRecognizer = null
+                super.onDestroy()
+            }
+
+            override fun onBind(intent: Intent?): IBinder? = null
+        }
+        EOF
+
+        # 11. FloatingButtonService.kt
+        cat << 'EOF' > app/src/main/java/com/ratito/voicecontrol/FloatingButtonService.kt
+        package com.ratito.voicecontrol
+
+        import android.app.Service
+        import android.content.Context
+        import android.content.Intent
+        import android.graphics.PixelFormat
+        import android.media.AudioManager
+        import android.os.Build
+        import android.os.IBinder
+        import android.view.Gravity
+        import android.view.LayoutInflater
+        import android.view.MotionEvent
+        import android.view.View
+        import android.view.WindowManager
+        import android.widget.ImageButton
+        import android.widget.Toast
+
+        class FloatingButtonService : Service() {
+
+            private var windowManager: WindowManager? = null
+            private var floatingView: View? = null
+            private lateinit var audioManager: AudioManager
+
+            override fun onCreate() {
+                super.onCreate()
+                audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+
+                val inflater = LayoutInflater.from(this)
+                floatingView = inflater.inflate(R.layout.floating_button, null)
+
+                val LAYOUT_FLAG = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                } else {
+                    @Suppress("DEPRECATION")
+                    WindowManager.LayoutParams.TYPE_PHONE
+                }
+
+                val params = WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    LAYOUT_FLAG,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                    PixelFormat.TRANSLUCENT
+                ).apply {
+                    gravity = Gravity.TOP or Gravity.START
+                    x = 100
+                    y = 100
+                }
+
+                var initialX = 0
+                var initialY = 0
+                var initialTouchX = 0f
+                var initialTouchY = 0f
+
+                val btnFloat = floatingView?.findViewById<ImageButton>(R.id.btnFloatAction)
+                btnFloat?.setOnTouchListener(object : View.OnTouchListener {
+                    private var isDragging = false
+                    override fun onTouch(v: View?, event: MotionEvent?): Boolean {
+                        when (event?.action) {
+                            MotionEvent.ACTION_DOWN -> {
+                                initialX = params.x
+                                initialY = params.y
+                                initialTouchX = event.rawX
+                                initialTouchY = event.rawY
+                                isDragging = false
+                                return true
+                            }
+                            MotionEvent.ACTION_MOVE -> {
+                                val dx = (event.rawX - initialTouchX).toInt()
+                                val dy = (event.rawY - initialTouchY).toInt()
+                                if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+                                    isDragging = true
+                                }
+                                params.x = initialX + dx
+                                params.y = initialY + dy
+                                windowManager?.updateViewLayout(floatingView, params)
+                                return true
+                            }
+                            MotionEvent.ACTION_UP -> {
+                                if (!isDragging) {
+                                    togglePlayPause()
+                                }
+                                return true
+                            }
+                        }
+                        return false
+                    }
+                })
+
+                val btnClose = floatingView?.findViewById<ImageButton>(R.id.btnFloatClose)
+                btnClose?.setOnClickListener {
+                    stopSelf()
+                }
+
+                try {
+                    windowManager?.addView(floatingView, params)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            private fun togglePlayPause() {
+                val eventTime = android.os.SystemClock.uptimeMillis()
+                val downEvent = android.view.KeyEvent(eventTime, eventTime, android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, 0)
+                val upEvent = android.view.KeyEvent(eventTime, eventTime, android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, 0)
+                try {
+                    audioManager.dispatchMediaKeyEvent(downEvent)
+                    audioManager.dispatchMediaKeyEvent(upEvent)
+                    Toast.makeText(this, "Ratito: Play/Pausa enviado", Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Error al enviar comando", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            override fun onDestroy() {
+                super.onDestroy()
+                if (floatingView != null) {
+                    try {
+                        windowManager?.removeView(floatingView)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+
+            override fun onBind(intent: Intent?): IBinder? = null
+        }
+        EOF
+
+    - name: Generate Gradle Wrapper
+      run: gradle wrapper --gradle-version 8.5
+
+    - name: Build Debug APK with Gradle
+      run: ./gradlew assembleDebug
+
+    - name: Upload APK Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: RatitoVoiceControl-APK
+        path: app/build/outputs/apk/debug/app-debug.apk
